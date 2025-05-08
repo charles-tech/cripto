@@ -1,13 +1,13 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import mplfinance as mpf
 import matplotlib.pyplot as plt
-import seaborn as sns
+import numpy as np
 from ta.momentum import RSIIndicator
 from datetime import timedelta
-import numpy as np
+import seaborn as sns
 
-# Configuração visual
 sns.set_theme(style='whitegrid')
 plt.rcParams.update({'font.size': 10})
 
@@ -30,53 +30,66 @@ if data.empty:
     st.error("Não foi possível carregar os dados.")
     st.stop()
 
+# --- AJUSTE PARA COLUNAS E TIPOS ---
+
+# Desfaz MultiIndex caso exista
+if isinstance(data.columns, pd.MultiIndex):
+    data.columns = data.columns.get_level_values(0)
+
+# Checagem e tratamento de colunas essenciais
+ohlc_cols = ["Open", "High", "Low", "Close", "Volume"]
+missing = [col for col in ohlc_cols if col not in data.columns]
+if missing:
+    st.error(f"As colunas {missing} não estão presentes no dataset baixado. Não é possível prosseguir.")
+    st.stop()
+
+for col in ohlc_cols:
+    data[col] = pd.to_numeric(data[col], errors='coerce')
+data = data.dropna(subset=ohlc_cols).copy()
+
+# --- FIM DO BLOCO DE LIMPEZA ---
+
 close_series = pd.Series(data["Close"].values.flatten(), index=data.index)
 
-# Indicadores técnicos
+# Médias móveis do Didi Index
+data["SMA8"] = data["Close"].rolling(window=8).mean()
+data["SMA34"] = data["Close"].rolling(window=34).mean()
+data["SMA144"] = data["Close"].rolling(window=144).mean()
+
+# Médias móveis tradicionais (opcional, para adicionar no gráfico principal)
 data["SMA20"] = data["Close"].rolling(window=20).mean()
 data["SMA50"] = data["Close"].rolling(window=50).mean()
-rsi = RSIIndicator(close=close_series, window=14)
-data["RSI"] = rsi.rsi()
 
-# Didi Index
-data["SMA3"] = data["Close"].rolling(window=3).mean()
-data["SMA8"] = data["Close"].rolling(window=8).mean()
-data["SMA20_DI"] = data["Close"].rolling(window=20).mean()
+# Gráfico CANDLE com painel auxiliar do Didi Index
+with st.expander("📊 Candlestick + Didi Index Auxiliar", expanded=True):
+    apds = [
+        mpf.make_addplot(data["SMA20"], color='g', width=1, panel=0, linestyle='dashed', ylabel="SMA20"),
+        mpf.make_addplot(data["SMA50"], color='orange', width=1, panel=0, linestyle='dotted', ylabel="SMA50"),
+        mpf.make_addplot(data["SMA8"], color='gold', width=1.2, panel=1, ylabel="SMA8"),
+        mpf.make_addplot(data["SMA34"], color='red', width=1.2, panel=1, ylabel="SMA34"),
+        mpf.make_addplot(data["SMA144"], color='blue', width=1.2, panel=1, ylabel="SMA144"),
+    ]
 
-# Estratégia de sinais do Didi Index
-data["Didi_buy"] = (
-    (data["SMA3"] > data["SMA8"]) & (data["SMA8"] < data["SMA20_DI"]) & 
-    (data["SMA3"].shift(1) <= data["SMA8"].shift(1))
-)
-data["Didi_sell"] = (
-    (data["SMA3"] < data["SMA8"]) & (data["SMA8"] > data["SMA20_DI"]) &
-    (data["SMA3"].shift(1) >= data["SMA8"].shift(1))
-)
-
-# Gráfico de preço + médias móveis + sinais Didi
-with st.expander("📈 Visualizar gráfico de preço, médias móveis e estratégia Didi", expanded=True):
-    fig, ax = plt.subplots(figsize=(7, 4))
-    ax.plot(data["Close"], label="Fechamento", color="royalblue", lw=1.4)
-    ax.plot(data["SMA20"], label="Média Móvel 20d", color="green", ls="--", lw=1)
-    ax.plot(data["SMA50"], label="Média Móvel 50d", color="orange", ls=":", lw=1)
-
-    # Sinais de compra e venda
-    buy_signals = data.loc[data["Didi_buy"]]
-    sell_signals = data.loc[data["Didi_sell"]]
-    ax.scatter(buy_signals.index, buy_signals["Close"], marker="^", color="lime", s=80, label="Didi BUY", zorder=5)
-    ax.scatter(sell_signals.index, sell_signals["Close"], marker="v", color="red", s=80, label="Didi SELL", zorder=5)
-
-    ax.set_ylabel("Preço (USD)")
-    ax.set_xlabel("Data")
-    ax.spines[['top', 'right']].set_visible(False)
-    ax.legend(ncol=4, fontsize=8, loc="upper left", frameon=True)
-    plt.tight_layout()
+    fig, axes = mpf.plot(
+        data,
+        type="candle",
+        style="yahoo",
+        addplot=apds,
+        volume=False,
+        returnfig=True,
+        figsize=(9,6),
+        title=f"{symbol} - Candlestick e Didi Index (8/34/144)",
+        panel_ratios=(2,1)
+    )
     st.pyplot(fig)
     st.markdown(
-        "**Como funciona:** Setas verdes (^) mostram sinal de compra (Didi Index). Setas vermelhas (v) mostram sinal de venda."
+        "Painel superior: candles e médias móveis tradicionais (20, 50).\n"
+        "Painel inferior: médias do Didi Index (8, 34, 144).\n\n"
+        "Observe cruzamentos e aproximações entre as linhas do painel auxiliar!"
     )
 
-# Gráfico RSI
+# Se quiser manter o RSI ainda disponível…
+data["RSI"] = RSIIndicator(close=close_series, window=14).rsi()
 with st.expander("📊 Visualizar RSI", expanded=False):
     fig2, ax2 = plt.subplots(figsize=(7, 1.8))
     ax2.plot(data["RSI"], label="RSI", color="purple")
@@ -91,55 +104,37 @@ with st.expander("📊 Visualizar RSI", expanded=False):
     plt.tight_layout()
     st.pyplot(fig2)
 
-# Gráfico Didi Index (curvas das médias)
-with st.expander("🪡 Visualizar Didi Index (agulhada do Didi)", expanded=False):
-    fig_didi, axdidi = plt.subplots(figsize=(7, 2.5))
-    axdidi.plot(data["SMA3"], label="SMA 3", color="red", linewidth=1.2)
-    axdidi.plot(data["SMA8"], label="SMA 8", color="blue", linewidth=1.2)
-    axdidi.plot(data["SMA20_DI"], label="SMA 20", color="green", linewidth=1.2)
-    axdidi.set_title("Didi Index - Médias Móveis (3, 8, 20)")
-    axdidi.set_ylabel("Valor")
-    axdidi.set_xlabel("Data")
-    axdidi.spines[['top', 'right']].set_visible(False)
-    axdidi.legend(fontsize=8, loc="upper left")
-    plt.tight_layout()
-    st.pyplot(fig_didi)
-    st.markdown(
-        "Quando as curvas se cruzam ou ficam muito próximas, pode indicar reversão ('agulhada').\n"
-        "SMA 3 cruzando as demais para cima = sinal de compra; cruzando para baixo = venda."
-    )
-
-# Previsão futura
+# Previsão futura simplificada (mantendo sua lógica)
 st.subheader("🔮 Previsão simplificada para os próximos 10 dias")
-last_close = data["Close"].iloc[-1]
-mean_return = data["Close"].pct_change().tail(10).mean()
-future_dates = [data.index[-1] + timedelta(days=i) for i in range(1, 11)]
-future_prices = [float(last_close) * (1 + float(mean_return)) ** i for i in range(1, 11)]
+try:
+    last_close = data["Close"].iloc[-1]
+    mean_return = data["Close"].pct_change().tail(10).mean()
+    future_dates = [data.index[-1] + timedelta(days=i) for i in range(1, 11)]
+    future_prices = [float(last_close) * (1 + float(mean_return)) ** i for i in range(1, 11)]
 
-future_df = pd.DataFrame({
-    "Data": future_dates,
-    "Preço Previsto": future_prices
-})
+    future_df = pd.DataFrame({
+        "Data": future_dates,
+        "Preço Previsto": future_prices
+    })
 
-# ----- Tabela de previsão final -----
-with st.expander("Ver tabela de previsão ±", expanded=False):
-    df_fmt = future_df.copy()
-    df_fmt["Preço Previsto"] = pd.to_numeric(df_fmt["Preço Previsto"], errors="coerce")
-    df_fmt["Preço Previsto (USD)"] = df_fmt["Preço Previsto"].apply(
-        lambda x: f"{x:.2f}" if pd.notnull(x) else "-"
-    )
-    st.table(df_fmt[["Data", "Preço Previsto (USD)"]])
-# ----- fim do bloco tabela formatada -----
+    with st.expander("Ver tabela de previsão ±", expanded=False):
+        df_fmt = future_df.copy()
+        df_fmt["Preço Previsto"] = pd.to_numeric(df_fmt["Preço Previsto"], errors="coerce")
+        df_fmt["Preço Previsto (USD)"] = df_fmt["Preço Previsto"].apply(
+            lambda x: f"{x:.2f}" if pd.notnull(x) else "-"
+        )
+        st.table(df_fmt[["Data", "Preço Previsto (USD)"]])
 
-# Gráfico previsão junto com histórico
-fig3, ax3 = plt.subplots(figsize=(7, 3))
-ax3.plot(data.index, data["Close"], label="Fechamento Histórico", color="royalblue", lw=1.4)
-ax3.plot(future_df["Data"], future_df["Preço Previsto"], label="Previsto (10 dias)", color="orange", linestyle="--", marker="o")
-ax3.set_ylabel("Preço (USD)")
-ax3.set_xlabel("Data")
-ax3.spines[['top', 'right']].set_visible(False)
-ax3.legend(ncol=2, fontsize=8, loc="upper left", frameon=True)
-plt.tight_layout()
-st.pyplot(fig3)
+    fig3, ax3 = plt.subplots(figsize=(7, 3))
+    ax3.plot(data.index, data["Close"], label="Fechamento Histórico", color="royalblue", lw=1.4)
+    ax3.plot(future_df["Data"], future_df["Preço Previsto"], label="Previsto (10 dias)", color="orange", linestyle="--", marker="o")
+    ax3.set_ylabel("Preço (USD)")
+    ax3.set_xlabel("Data")
+    ax3.spines[['top', 'right']].set_visible(False)
+    ax3.legend(ncol=2, fontsize=8, loc="upper left", frameon=True)
+    plt.tight_layout()
+    st.pyplot(fig3)
 
-st.info("A previsão acima é PURAMENTE INDICATIVA, baseada em retorno médio recente. Não utilize como conselho de investimento.")
+    st.info("A previsão acima é PURAMENTE INDICATIVA, baseada em retorno médio recente. Não utilize como conselho de investimento.")
+except Exception as e:
+    st.warning(f"Não foi possível gerar previsão: {e}")
