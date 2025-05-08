@@ -1,6 +1,7 @@
 streamlit
 yfinance
 pandas
-matplotlib>=3.2
+matplotlib
 seaborn
 ta
+numpy
