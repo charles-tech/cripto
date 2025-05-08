@@ -31,6 +31,15 @@ with st.sidebar:
         step=1,
         help="Quantidade de dias a prever para frente."
     )
+    # --- INÍCIO Probabilidade ---
+    preco_alvo = st.number_input(
+        "Preço alvo para calcular probabilidade (USD)",
+        min_value=0.0,
+        value=0.0,
+        step=0.5,
+        help="Preço a ser atingido dentro do período de previsão."
+    )
+    # --- FIM Probabilidade ---
 
 data = yf.download(symbol, period=periodo)
 
@@ -40,11 +49,9 @@ if data.empty:
 
 # --- AJUSTE PARA COLUNAS E TIPOS ---
 
-# Desfaz MultiIndex caso exista
 if isinstance(data.columns, pd.MultiIndex):
     data.columns = data.columns.get_level_values(0)
 
-# Checagem e tratamento de colunas essenciais
 ohlc_cols = ["Open", "High", "Low", "Close", "Volume"]
 missing = [col for col in ohlc_cols if col not in data.columns]
 if missing:
@@ -64,11 +71,9 @@ data["SMA8"] = data["Close"].rolling(window=8).mean()
 data["SMA34"] = data["Close"].rolling(window=34).mean()
 data["SMA144"] = data["Close"].rolling(window=144).mean()
 
-# Médias móveis tradicionais (opcional, para adicionar no gráfico principal)
 data["SMA20"] = data["Close"].rolling(window=20).mean()
 data["SMA50"] = data["Close"].rolling(window=50).mean()
 
-# Gráfico CANDLE com painel auxiliar do Didi Index
 with st.expander("📊 Candlestick + Didi Index Auxiliar", expanded=True):
     apds = [
         mpf.make_addplot(data["SMA20"], color='g', width=1, panel=0, linestyle='dashed', ylabel="SMA20"),
@@ -96,7 +101,6 @@ with st.expander("📊 Candlestick + Didi Index Auxiliar", expanded=True):
         "Observe cruzamentos e aproximações entre as linhas do painel auxiliar!"
     )
 
-# Se quiser manter o RSI ainda disponível…
 data["RSI"] = RSIIndicator(close=close_series, window=14).rsi()
 with st.expander("📊 Visualizar RSI", expanded=False):
     fig2, ax2 = plt.subplots(figsize=(7, 1.8))
@@ -112,7 +116,6 @@ with st.expander("📊 Visualizar RSI", expanded=False):
     plt.tight_layout()
     st.pyplot(fig2)
 
-# Previsão futura baseada nos últimos retornos médios
 st.subheader(f"🔮 Previsão simplificada para os próximos {n_dias_previsao} dias")
 try:
     last_close = data["Close"].iloc[-1]
@@ -146,3 +149,38 @@ try:
     st.info("A previsão acima é PURAMENTE INDICATIVA, baseada em retorno médio recente. Não utilize como conselho de investimento.")
 except Exception as e:
     st.warning(f"Não foi possível gerar previsão: {e}")
+
+# --- INÍCIO Probabilidade ---
+N_SIMULACOES = 10000
+
+if preco_alvo > 0:
+    try:
+        preco_atual = data["Close"].iloc[-1]
+        log_retorno = np.log(data["Close"] / data["Close"].shift(1)).dropna()
+        volatilidade = log_retorno.std() * np.sqrt(252)
+        drift = log_retorno.mean() * 252
+
+        dias = n_dias_previsao
+        prob_atingir_alvo = 0
+
+        for i in range(N_SIMULACOES):
+            simulacao = preco_atual
+            for _ in range(dias):
+                simulacao *= np.exp(np.random.normal(drift / 252, volatilidade / np.sqrt(252)))
+                if simulacao >= preco_alvo:
+                    prob_atingir_alvo += 1
+                    break
+        probabilidade = prob_atingir_alvo / N_SIMULACOES
+
+        st.subheader("🎯 Probabilidade de o preço atingir o alvo")
+        st.markdown(
+            f"A probabilidade de **{symbol}** atingir ${preco_alvo:.2f} nos próximos **{dias} dias** é aproximadamente:\n\n"
+            f"### :orange[{'{:.2%}'.format(probabilidade)}]"
+        )
+        st.caption(
+            "Estimativa baseada em simulação de Monte Carlo, assumindo que o comportamento passado reflete o futuro. "
+            "Não deve ser usada como recomendação de investimento."
+        )
+    except Exception as e:
+        st.warning(f"Não foi possível calcular a probabilidade: {e}")
+# --- FIM Probabilidade ---
