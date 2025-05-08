@@ -11,18 +11,50 @@ import seaborn as sns
 sns.set_theme(style='whitegrid')
 plt.rcParams.update({'font.size': 10})
 
-st.set_page_config(page_title="Análise Cripto: Solana (SOL)", layout="centered")
-st.title("🔮 Análise e Previsão de Solana (SOL)")
+st.set_page_config(page_title="Análise Ativos: B3, EUA e Cripto", layout="centered")
+st.title("🔮 Análise e Previsão de Ativos: B3, EUA e Cripto")
 
+# ----- SIDEBAR -----
 with st.sidebar:
     st.header("Configuração")
-    symbol = st.text_input("Símbolo do ativo (ex: SOL-USD)", value="SOL-USD")
+
+    simbolos_populares = {
+        "🇧🇷 PETR4 (Petrobras)": "PETR4.SA",
+        "🇧🇷 VALE3 (Vale)": "VALE3.SA",
+        "🇧🇷 ITUB4 (Itaú Unibanco)": "ITUB4.SA",
+        "🇧🇷 BOVA11 (ETF IBOVESPA)": "BOVA11.SA",
+        "🇺🇸 Apple": "AAPL",
+        "🇺🇸 Microsoft": "MSFT",
+        "🇺🇸 Tesla": "TSLA",
+        "🇺🇸 Amazon": "AMZN",
+        "₿ Bitcoin": "BTC-USD",
+        "₿ Ethereum": "ETH-USD",
+        "Solana": "SOL-USD"
+    }
+
+    exemplo = st.selectbox(
+        "Exemplos de ativos",
+        options=list(simbolos_populares.keys()),
+        index=10  # Solana como default
+    )
+
+    symbol = st.text_input(
+        "Símbolo do ativo (Yahoo Finance)",
+        value=simbolos_populares[exemplo],
+        help=(
+            "Você pode inserir qualquer símbolo válido do Yahoo Finance.\n"
+            "Exemplos: PETR4.SA, VALE3.SA (B3), BOVA11.SA (ETF), AAPL (Apple), TSLA (Tesla), "
+            "BTC-USD (Bitcoin), ETH-USD (Ethereum), SOL-USD (Solana)."
+        )
+    )
+
     periodo = st.selectbox(
         "Período",
         options=["1y", "6mo", "3mo", "1mo"],
         index=0,
         format_func=lambda x: {"1y": "1 ano", "6mo": "6 meses", "3mo": "3 meses", "1mo": "1 mês"}[x]
     )
+
     n_dias_previsao = st.number_input(
         "Dias para previsão",
         min_value=1,
@@ -31,7 +63,7 @@ with st.sidebar:
         step=1,
         help="Quantidade de dias a prever para frente."
     )
-    # --- INÍCIO Probabilidade ---
+
     preco_alvo = st.number_input(
         "Preço alvo para calcular probabilidade (USD)",
         min_value=0.0,
@@ -39,16 +71,14 @@ with st.sidebar:
         step=0.5,
         help="Preço a ser atingido dentro do período de previsão."
     )
-    # --- FIM Probabilidade ---
 
 data = yf.download(symbol, period=periodo)
 
 if data.empty:
-    st.error("Não foi possível carregar os dados.")
+    st.error("Não foi possível carregar os dados para o ativo selecionado.")
     st.stop()
 
-# --- AJUSTE PARA COLUNAS E TIPOS ---
-
+# --- LIMPEZA ---
 if isinstance(data.columns, pd.MultiIndex):
     data.columns = data.columns.get_level_values(0)
 
@@ -62,15 +92,12 @@ for col in ohlc_cols:
     data[col] = pd.to_numeric(data[col], errors='coerce')
 data = data.dropna(subset=ohlc_cols).copy()
 
-# --- FIM DO BLOCO DE LIMPEZA ---
-
 close_series = pd.Series(data["Close"].values.flatten(), index=data.index)
 
 # Médias móveis do Didi Index
 data["SMA8"] = data["Close"].rolling(window=8).mean()
 data["SMA34"] = data["Close"].rolling(window=34).mean()
 data["SMA144"] = data["Close"].rolling(window=144).mean()
-
 data["SMA20"] = data["Close"].rolling(window=20).mean()
 data["SMA50"] = data["Close"].rolling(window=50).mean()
 
@@ -82,7 +109,6 @@ with st.expander("📊 Candlestick + Didi Index Auxiliar", expanded=True):
         mpf.make_addplot(data["SMA34"], color='red', width=1.2, panel=1, ylabel="SMA34"),
         mpf.make_addplot(data["SMA144"], color='blue', width=1.2, panel=1, ylabel="SMA144"),
     ]
-
     fig, axes = mpf.plot(
         data,
         type="candle",
@@ -101,6 +127,7 @@ with st.expander("📊 Candlestick + Didi Index Auxiliar", expanded=True):
         "Observe cruzamentos e aproximações entre as linhas do painel auxiliar!"
     )
 
+# RSI
 data["RSI"] = RSIIndicator(close=close_series, window=14).rsi()
 with st.expander("📊 Visualizar RSI", expanded=False):
     fig2, ax2 = plt.subplots(figsize=(7, 1.8))
@@ -150,7 +177,7 @@ try:
 except Exception as e:
     st.warning(f"Não foi possível gerar previsão: {e}")
 
-# --- INÍCIO Probabilidade ---
+# ----- CALCULAR PROBABILIDADE -----
 N_SIMULACOES = 10000
 
 if preco_alvo > 0:
@@ -183,4 +210,3 @@ if preco_alvo > 0:
         )
     except Exception as e:
         st.warning(f"Não foi possível calcular a probabilidade: {e}")
-# --- FIM Probabilidade ---
