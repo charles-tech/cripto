@@ -3,5 +3,6 @@ yfinance
 pandas
 matplotlib
 seaborn
+mplfinance
 ta
 numpy
