@@ -23,6 +23,14 @@ with st.sidebar:
         index=0,
         format_func=lambda x: {"1y": "1 ano", "6mo": "6 meses", "3mo": "3 meses", "1mo": "1 mês"}[x]
     )
+    n_dias_previsao = st.number_input(
+        "Dias para previsão",
+        min_value=1,
+        max_value=60,
+        value=10,
+        step=1,
+        help="Quantidade de dias a prever para frente."
+    )
 
 data = yf.download(symbol, period=periodo)
 
@@ -104,13 +112,13 @@ with st.expander("📊 Visualizar RSI", expanded=False):
     plt.tight_layout()
     st.pyplot(fig2)
 
-# Previsão futura simplificada (mantendo sua lógica)
-st.subheader("🔮 Previsão simplificada para os próximos 10 dias")
+# Previsão futura baseada nos últimos retornos médios
+st.subheader(f"🔮 Previsão simplificada para os próximos {n_dias_previsao} dias")
 try:
     last_close = data["Close"].iloc[-1]
     mean_return = data["Close"].pct_change().tail(10).mean()
-    future_dates = [data.index[-1] + timedelta(days=i) for i in range(1, 11)]
-    future_prices = [float(last_close) * (1 + float(mean_return)) ** i for i in range(1, 11)]
+    future_dates = [data.index[-1] + timedelta(days=i) for i in range(1, int(n_dias_previsao)+1)]
+    future_prices = [float(last_close) * (1 + float(mean_return)) ** i for i in range(1, int(n_dias_previsao)+1)]
 
     future_df = pd.DataFrame({
         "Data": future_dates,
@@ -127,7 +135,7 @@ try:
 
     fig3, ax3 = plt.subplots(figsize=(7, 3))
     ax3.plot(data.index, data["Close"], label="Fechamento Histórico", color="royalblue", lw=1.4)
-    ax3.plot(future_df["Data"], future_df["Preço Previsto"], label="Previsto (10 dias)", color="orange", linestyle="--", marker="o")
+    ax3.plot(future_df["Data"], future_df["Preço Previsto"], label=f"Previsto ({n_dias_previsao} dias)", color="orange", linestyle="--", marker="o")
     ax3.set_ylabel("Preço (USD)")
     ax3.set_xlabel("Data")
     ax3.spines[['top', 'right']].set_visible(False)
