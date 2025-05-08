@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from ta.momentum import RSIIndicator
 from datetime import timedelta
+import numpy as np
 
 # Configuração visual
 sns.set_theme(style='whitegrid')
@@ -29,7 +30,6 @@ if data.empty:
     st.error("Não foi possível carregar os dados.")
     st.stop()
 
-# Garantir close como 1D (Series)
 close_series = pd.Series(data["Close"].values.flatten(), index=data.index)
 
 # Indicadores técnicos
@@ -38,18 +38,43 @@ data["SMA50"] = data["Close"].rolling(window=50).mean()
 rsi = RSIIndicator(close=close_series, window=14)
 data["RSI"] = rsi.rsi()
 
-# Gráfico de preço + médias móveis
-with st.expander("📈 Visualizar gráfico de preço e médias móveis", expanded=True):
-    fig, ax = plt.subplots(figsize=(7, 3))
+# Didi Index
+data["SMA3"] = data["Close"].rolling(window=3).mean()
+data["SMA8"] = data["Close"].rolling(window=8).mean()
+data["SMA20_DI"] = data["Close"].rolling(window=20).mean()
+
+# Estratégia de sinais do Didi Index
+data["Didi_buy"] = (
+    (data["SMA3"] > data["SMA8"]) & (data["SMA8"] < data["SMA20_DI"]) & 
+    (data["SMA3"].shift(1) <= data["SMA8"].shift(1))
+)
+data["Didi_sell"] = (
+    (data["SMA3"] < data["SMA8"]) & (data["SMA8"] > data["SMA20_DI"]) &
+    (data["SMA3"].shift(1) >= data["SMA8"].shift(1))
+)
+
+# Gráfico de preço + médias móveis + sinais Didi
+with st.expander("📈 Visualizar gráfico de preço, médias móveis e estratégia Didi", expanded=True):
+    fig, ax = plt.subplots(figsize=(7, 4))
     ax.plot(data["Close"], label="Fechamento", color="royalblue", lw=1.4)
     ax.plot(data["SMA20"], label="Média Móvel 20d", color="green", ls="--", lw=1)
     ax.plot(data["SMA50"], label="Média Móvel 50d", color="orange", ls=":", lw=1)
+
+    # Sinais de compra e venda
+    buy_signals = data.loc[data["Didi_buy"]]
+    sell_signals = data.loc[data["Didi_sell"]]
+    ax.scatter(buy_signals.index, buy_signals["Close"], marker="^", color="lime", s=80, label="Didi BUY", zorder=5)
+    ax.scatter(sell_signals.index, sell_signals["Close"], marker="v", color="red", s=80, label="Didi SELL", zorder=5)
+
     ax.set_ylabel("Preço (USD)")
     ax.set_xlabel("Data")
     ax.spines[['top', 'right']].set_visible(False)
-    ax.legend(ncol=3, fontsize=8, loc="upper left", frameon=True)
+    ax.legend(ncol=4, fontsize=8, loc="upper left", frameon=True)
     plt.tight_layout()
     st.pyplot(fig)
+    st.markdown(
+        "**Como funciona:** Setas verdes (^) mostram sinal de compra (Didi Index). Setas vermelhas (v) mostram sinal de venda."
+    )
 
 # Gráfico RSI
 with st.expander("📊 Visualizar RSI", expanded=False):
@@ -65,6 +90,24 @@ with st.expander("📊 Visualizar RSI", expanded=False):
     ax2.spines[['top', 'right']].set_visible(False)
     plt.tight_layout()
     st.pyplot(fig2)
+
+# Gráfico Didi Index (curvas das médias)
+with st.expander("🪡 Visualizar Didi Index (agulhada do Didi)", expanded=False):
+    fig_didi, axdidi = plt.subplots(figsize=(7, 2.5))
+    axdidi.plot(data["SMA3"], label="SMA 3", color="red", linewidth=1.2)
+    axdidi.plot(data["SMA8"], label="SMA 8", color="blue", linewidth=1.2)
+    axdidi.plot(data["SMA20_DI"], label="SMA 20", color="green", linewidth=1.2)
+    axdidi.set_title("Didi Index - Médias Móveis (3, 8, 20)")
+    axdidi.set_ylabel("Valor")
+    axdidi.set_xlabel("Data")
+    axdidi.spines[['top', 'right']].set_visible(False)
+    axdidi.legend(fontsize=8, loc="upper left")
+    plt.tight_layout()
+    st.pyplot(fig_didi)
+    st.markdown(
+        "Quando as curvas se cruzam ou ficam muito próximas, pode indicar reversão ('agulhada').\n"
+        "SMA 3 cruzando as demais para cima = sinal de compra; cruzando para baixo = venda."
+    )
 
 # Previsão futura
 st.subheader("🔮 Previsão simplificada para os próximos 10 dias")
